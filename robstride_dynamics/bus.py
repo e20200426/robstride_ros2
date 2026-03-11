@@ -470,6 +470,114 @@ class RobstrideBus:
         self.transmit(CommunicationType.OPERATION_CONTROL, torque_u16, device_id, data)
 
     
+    def set_run_mode(self, motor: str, mode: int) -> None:
+        """Write the run_mode parameter to the motor (must be disabled first).
+
+        Args:
+            motor (str): Motor name.
+            mode (int): 0 = MIT, 1 = PP (Profile Position), 2 = Velocity, 3 = Current.
+        """
+        param_id, _dtype, _ = ParameterType.MODE
+        value_buffer = struct.pack('<bBH', mode, 0, 0)
+        data = struct.pack('<HH', param_id, 0x00) + value_buffer
+        self.transmit(CommunicationType.WRITE_PARAMETER, self.host_id,
+                      self.motors[motor].id, data)
+        time.sleep(0.1)
+
+    def set_velocity_mode(
+        self,
+        motor: str,
+        torque_limit: float = 2.0,
+    ) -> None:
+        """Switch the motor to velocity mode (run_mode = 2) and configure it.
+
+        The motor must be **disabled** before calling this.  The method:
+        1. Sets run_mode = 2.
+        2. Re-enables the motor.
+        3. Writes the torque (current) limit.
+
+        Args:
+            motor (str): Motor name.
+            torque_limit (float): Maximum current in velocity mode (Nm / A).
+        """
+        self.set_run_mode(motor, 2)
+        self.enable(motor)
+        self.write(motor, ParameterType.TORQUE_LIMIT, float(torque_limit))
+        time.sleep(0.1)
+
+    def set_pp_mode(
+        self,
+        motor: str,
+        vel_max: float = 20.0,
+        acceleration: float = 10.0,
+        torque_limit: float = 2.0,
+    ) -> None:
+        """Switch the motor to Profile-Position mode (run_mode = 1) and configure it.
+
+        The motor must be **disabled** before calling this.  The method:
+        1. Sets run_mode = 1.
+        2. Re-enables the motor.
+        3. Writes vel_max, acceleration (PP profile params), and torque limit.
+
+        Args:
+            motor (str): Motor name.
+            vel_max (float): Maximum profile speed in rad/s.
+            acceleration (float): Profile acceleration in rad/s².
+            torque_limit (float): Maximum torque during travel in Nm.
+        """
+        self.set_run_mode(motor, 1)
+        time.sleep(0.2)
+        self.enable(motor)
+        time.sleep(0.2)
+
+        motor_id = self.motors[motor].id
+        for param_id, value in (
+            (ParameterType.PP_VELOCITY_MAX[0],        vel_max),
+            (ParameterType.PP_ACCELERATION_TARGET[0], acceleration),
+            (ParameterType.TORQUE_LIMIT[0],           torque_limit),
+        ):
+            value_buffer = struct.pack('<f', float(value))
+            data = struct.pack('<HH', param_id, 0x00) + value_buffer
+            self.transmit(CommunicationType.WRITE_PARAMETER, self.host_id, motor_id, data)
+            time.sleep(0.05)
+
+    def control_velocity(
+        self,
+        motor: str,
+        velocity: float,
+    ) -> tuple[float, float, float, float]:
+        """Send a velocity setpoint and return the motor status.
+
+        The motor must already be in velocity mode (run_mode = 2).
+
+        Args:
+            motor (str): Motor name.
+            velocity (float): Target velocity in rad/s.
+
+        Returns:
+            tuple: (position, velocity, torque, temperature)
+        """
+        return self.write(motor, ParameterType.VELOCITY_TARGET, float(velocity))
+
+    def control_pp(
+        self,
+        motor: str,
+        position: float,
+    ) -> tuple[float, float, float, float]:
+        """Send a position setpoint and return the motor status (PP mode).
+
+        The motor must already be in PP mode (run_mode = 1).  Continuously
+        writing the same target is safe — the motor holds position.
+
+        Args:
+            motor (str): Motor name.
+            position (float): Target position in rad.
+
+        Returns:
+            tuple: (position, velocity, torque, temperature)
+        """
+        return self.write(motor, ParameterType.POSITION_TARGET, float(position))
+
     def read_operation_frame(self, motor: str) -> tuple[float, float, float, float]:
         """
         Receive the MIT status frame from the motor.

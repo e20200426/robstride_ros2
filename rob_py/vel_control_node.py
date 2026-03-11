@@ -15,7 +15,7 @@ import time
 import rclpy
 
 from rob_py.can_setup import setup_can_interface
-from robstride_dynamics import RobstrideBus, Motor, ParameterType
+from robstride_dynamics import RobstrideBus, Motor
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 CAN_CHANNEL    = 'can0'
@@ -25,12 +25,6 @@ MOTOR_MODEL    = 'rs-00'
 TORQUE_LIMIT   = 2.0         # A  — max current in velocity mode
 LOOP_RATE_HZ   = 100         # control loop frequency
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-def set_velocity_mode(bus: RobstrideBus, motor_name: str):
-    """Switch the motor to velocity mode (run_mode = 2)."""
-    bus.write(motor_name, ParameterType.MODE, 2)
-    time.sleep(0.1)
 
 
 def main(args=None):
@@ -48,14 +42,7 @@ def main(args=None):
     bus = RobstrideBus(CAN_CHANNEL, motors, calibration)
     bus.connect(handshake=True)
 
-    # Must be disabled before changing mode
-    set_velocity_mode(bus, motor_name)
-
-    bus.enable(motor_name)
-
-    # Set current (torque) limit for velocity mode
-    bus.write(motor_name, ParameterType.TORQUE_LIMIT, float(TORQUE_LIMIT))
-    time.sleep(0.1)
+    bus.set_velocity_mode(motor_name, torque_limit=TORQUE_LIMIT)
 
     print(f"[INFO] Velocity mode active — motor {MOTOR_ID} on {CAN_CHANNEL}")
 
@@ -93,9 +80,7 @@ def main(args=None):
 
     while running:
         try:
-            pos, vel, trq, temp = bus.write(
-                motor_name, ParameterType.VELOCITY_TARGET, float(target_velocity)
-            )
+            pos, vel, trq, temp = bus.control_velocity(motor_name, target_velocity)
             print(
                 f"\r  pos={pos:+.4f} rad  vel={vel:+.4f} rad/s  "
                 f"trq={trq:+.4f} Nm  temp={temp:.1f}°C   ",
@@ -108,7 +93,7 @@ def main(args=None):
 
     print("\n[INFO] Stopping motor ...")
     try:
-        bus.write(motor_name, ParameterType.VELOCITY_TARGET, 0.0)
+        bus.control_velocity(motor_name, 0.0)
         time.sleep(0.1)
         bus.disable(motor_name)
         bus.disconnect()

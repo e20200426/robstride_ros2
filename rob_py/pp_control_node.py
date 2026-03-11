@@ -12,14 +12,13 @@ Edit the constants below, then run:
 """
 
 import signal
-import struct
 import threading
 import time
 
 import rclpy
 
 from rob_py.can_setup import setup_can_interface
-from robstride_dynamics import RobstrideBus, Motor, ParameterType, CommunicationType
+from robstride_dynamics import RobstrideBus, Motor
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 CAN_CHANNEL          = 'can0'
@@ -31,27 +30,6 @@ PP_ACCELERATION      = 10.0        # rad/s² — profile acceleration
 TORQUE_LIMIT         = 2.0         # Nm     — max torque during travel
 FEEDBACK_RATE_HZ     = 50          # status-poll frequency
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-def _transmit_param_f32(bus: RobstrideBus, motor_id: int, param_id: int, value: float):
-    """Write a float32 parameter without blocking on a response."""
-    value_buffer = struct.pack('<f', value)
-    data = struct.pack('<HH', param_id, 0x00) + value_buffer
-    bus.transmit(CommunicationType.WRITE_PARAMETER, bus.host_id, motor_id, data)
-
-
-def set_pp_mode(bus: RobstrideBus, motor_name: str):
-    """Switch motor to PP mode (run_mode = 1) while it is disabled."""
-    param_id, _dtype, _ = ParameterType.MODE
-    value_buffer = struct.pack('<bBH', 1, 0, 0)
-    data = struct.pack('<HH', param_id, 0x00) + value_buffer
-    bus.transmit(
-        CommunicationType.WRITE_PARAMETER,
-        bus.host_id,
-        bus.motors[motor_name].id,
-        data,
-    )
-    time.sleep(0.1)
 
 
 def main(args=None):
@@ -69,27 +47,19 @@ def main(args=None):
     bus = RobstrideBus(CAN_CHANNEL, motors, calibration)
     bus.connect(handshake=True)
 
-    # Must be in disabled state before changing run mode
+    # Ensure motor is disabled before mode switch
     try:
         bus.disable(motor_name)
     except Exception:
         pass
     time.sleep(0.3)
 
-    set_pp_mode(bus, motor_name)
-    time.sleep(0.3)
-
-    bus.enable(motor_name)
-    time.sleep(0.3)
-
-    # Configure profile parameters (set once after enabling)
-    motor_id = bus.motors[motor_name].id
-    _transmit_param_f32(bus, motor_id, ParameterType.PP_VELOCITY_MAX[0],     PP_VELOCITY_MAX)
-    time.sleep(0.05)
-    _transmit_param_f32(bus, motor_id, ParameterType.PP_ACCELERATION_TARGET[0], PP_ACCELERATION)
-    time.sleep(0.05)
-    _transmit_param_f32(bus, motor_id, ParameterType.TORQUE_LIMIT[0],        TORQUE_LIMIT)
-    time.sleep(0.05)
+    bus.set_pp_mode(
+        motor_name,
+        vel_max=PP_VELOCITY_MAX,
+        acceleration=PP_ACCELERATION,
+        torque_limit=TORQUE_LIMIT,
+    )
 
     print(f"[INFO] PP mode active — motor {MOTOR_ID} on {CAN_CHANNEL}")
     print(f"       vel_max={PP_VELOCITY_MAX} rad/s  acc={PP_ACCELERATION} rad/s²  "
@@ -131,9 +101,7 @@ def main(args=None):
         try:
             # Continuously write the position target; the motor holds position if
             # the target is unchanged, and the write always returns a status frame.
-            pos, vel, trq, temp = bus.write(
-                motor_name, ParameterType.POSITION_TARGET, float(target_position)
-            )
+            pos, vel, trq, temp = bus.control_pp(motor_name, target_position)
             print(
                 f"\r  pos={pos:+.4f} rad  vel={vel:+.4f} rad/s  "
                 f"trq={trq:+.4f} Nm  temp={temp:.1f}°C   ",
@@ -146,7 +114,7 @@ def main(args=None):
 
     print("\n[INFO] Returning to home position ...")
     try:
-        bus.write(motor_name, ParameterType.POSITION_TARGET, 0.0)
+        bus.control_pp(motor_name, 0.0)
         time.sleep(0.8)
         bus.disable(motor_name)
         bus.disconnect()
