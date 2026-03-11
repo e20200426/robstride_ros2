@@ -23,12 +23,7 @@ from .table import (
     MODEL_MIT_KP_TABLE,
     MODEL_MIT_KD_TABLE,
 )
-<<<<<<< HEAD
-from .protocol import CommunicationType
-
-=======
 from .protocol import CommunicationType, ParameterType
->>>>>>> e078198 (add readme)
 
 Value: TypeAlias = int | float
 
@@ -207,7 +202,7 @@ class RobstrideBus:
         data = struct.pack("<HH", param_id, 0x00) + value_buffer
 
         self.transmit(CommunicationType.WRITE_PARAMETER, self.host_id, device_id, data)
-        self.receive_status_frame(motor)
+        return self.receive_status_frame(motor)
 
     # RobstrideMethods
 
@@ -474,41 +469,7 @@ class RobstrideBus:
 
         self.transmit(CommunicationType.OPERATION_CONTROL, torque_u16, device_id, data)
 
-<<<<<<< HEAD
-=======
-    def control_vel(
-        self,
-        motor: str,
-        vel: float,
-        kp: float = 2.0,
-        ki: float = 0.5,
-        max_velocity: float = 20.0,
-    ) -> tuple[float, float, float, float]:
-        """Set velocity-mode (Mode 2) target for a motor.
-        
-        Example usage:
-            bus.control_vel("motor_1", vel=5.0)
-            or 
-            bus.control_vel("motor_1", vel=5.0, kp=3.0, ki=0.8, max_velocity=10.0)
-            
-        Args:
-            motor (str): Motor name.
-            vel (float): Target velocity in rad/s.
-            kp (float): Velocity P-gain (default 2.0).
-            ki (float): Velocity I-gain (default 0.5).
-            max_velocity (float): Velocity limit in rad/s (default 20.0).
-
-        Returns:
-            tuple: (position, velocity, torque, temperature) status after the command.
-        """
-        self.write(motor, ParameterType.MODE, 2)
-        self.write(motor, ParameterType.VELOCITY_LIMIT, float(max_velocity))
-        self.write(motor, ParameterType.VELOCITY_KP, float(kp))
-        self.write(motor, ParameterType.VELOCITY_KI, float(ki))
-        self.write(motor, ParameterType.VELOCITY_TARGET, float(vel))
-        return self.receive_status_frame(motor)
-
->>>>>>> e078198 (add readme)
+    
     def read_operation_frame(self, motor: str) -> tuple[float, float, float, float]:
         """
         Receive the MIT status frame from the motor.
